@@ -1,0 +1,623 @@
+---
+title: "Solving Ordinary Differential Equations in R"
+author:
+- name: Kaique S Alves and Emerson M Del Ponte
+  affiliation: Universidade Federal de Viçosa, Departamento de Fitopatologia, Viçosa, MG, Brazil 
+output:
+  html_document:
+    highlight: textmate
+    depth: 5
+    theme: ipsum
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+bibliography: bibliography.bib
+csl: phytopathology.csl
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+# Introduction
+
+  Ordinary differential equations (ODEs) are equations that describes relations between state variables and their derivatives i.e. the derivatives are established as functions of the their variables. The ODEs are used in several areas of science. In plant pathology, they appear as epidemiological models, mostly for describing epidemics growth curves, and they has being used since before Vanderplank's works.
+
+  The most popular ODEs used in botanical epidemiology are the Monomolecular, Logistic and Gompertz models. They're the most used ODEs in epidemiology, mainly to fit data, using some fitting method e.g. least square. However, for that purpose, we use these equations in their integrated form.
+  
+  In this tutorial we'll show how to solve ODEs to simulate epidemics. In epidemiology, simulations are applied to obtain information of hypothetical scenarios and help to answer some questions about these different scenarios. Moreover, simulations enable to perform experiments without going to the field, just using validated models that describe the studied phenomena. Among the applications of the simulation we can cite: Evaluate efficacy of fungicide applications in reducing yield loss; dynamics of pathogen resistance; evaluate roguing strategies; study host resistance; economic impacts, etc.
+  
+  Besides the model mentioned above, there are mechanistic models that their mathematical structure are composed by ODEs. In these models, each ODE represents a compartment of the epidemic system. For example, the Susceptible-Infectious-Removed (SIR) model are composed by these tree compartments and there are one ODE for each one. Moreover, there are the Susceptible-Infectious-Exposed-Removed (SEIR) model  that has an additional compartment for the infected-latent or asymptomatic tissue of the epidemic. The models can be modified by adding more compartments, including plant growth, time-varying parameters, etc, depending of the pathosystems and the complexity needed for the study.  
+  
+
+## Objectives
+
+  In this tutorial we'll illustrate two methods to solve ODES using R [@R2017]. For that, we used as example tree models, a simple one, the logistic, and two more complexes, the SIR and SEIR models. 
+  
+
+# Packages
+
+  Here we'll call all the library that we need to deal with ODEs. The first one is **`tidyverse`** [-@TIDYVERSE2017], which is collection of packages designed for data science <https://www.tidyverse.org/>. Loading **`tidyverse`** we also load **`ggplot2`** [-@GGPLOT22009] that allows to make graphics for data visualization. For solving ODEs in the second section we use **`deSolve`** that allows to solve ODEs easily. More details is presented in bellow.
+  
+
+```{r libraries_and_seed, message=FALSE}
+if (!require(tidyverse)) {
+  install.packages("tidyverse",
+    repos = c(CRAN = "https://cloud.r-project.org/")
+  )
+  library(tidyverse)
+}
+
+if (!require(deSolve)) {
+  install.packages("deSolve",
+    repos = c(CRAN = "https://cloud.r-project.org/")
+  )
+  library(deSolve)
+}
+```
+
+```{r}
+theme_set(theme_light())
+```
+
+
+# Finite differences 
+
+  Finite differences approximations (also know as Euler method) are a simple numerical method used for solving differential equations. It's a old method, but its use became mofe often after the 1950's  with the emergence of appropriate computers to deal with numerical problems. Basicly, the  Finite differences consists in replacing the equation's differential operator by a differential quotients, i.e. it's replaced by a difference of the variable in a step of time or space. This concept are based on the definition of derivatives:
+  
+  $$\frac{dy}{dt} =  \lim_{h \to 0}\frac {y_{i} - y_{i-h}}{h}$$
+ 
+  
+  Here we'll skip the theory behing these method and go directly to code. First thing is to solve the part $\frac {dy}{dt}$ of the ODEs. Using finite differences we can approximate the first order differentiation by: 
+  
+## Forward difference:
+  
+$$\frac {dy}{dt} \approx \frac {y_{i+1} - y_{i}}{dt}$$
+
+## Backward difference:
+  
+$$\frac {dy}{dt} \approx \frac {y_{i} - y_{i-1}}{dt}$$
+
+## Central difference:
+  
+$$\frac {dy}{dt} \approx \frac {y_{i+1} - y_{i-1}}{2dt}$$
+ 
+  As you could see, we equationate the derivative in a difference between the variable $y$ in different step of times $dt$. 
+  
+ Lets apply in a simple epidemiological model. The **Logistic model**.
+ 
+  
+## Logistic Model
+
+  The classical Logistic model is used to describe epidemics since Vanderplank had publish his famous book in 1963. We'll not to discuss the equation here, but it can be writed as: 
+
+$$\frac {dy}{dt} = yr (1-y)$$
+  
+  Apply the Forward finite difference in the $\frac {dy}{dt}$ we obtain:
+
+$$\frac {y_{i+1} - y_{i}}{dt} = yr (1-y)$$
+  
+  Rearranging to isolate $y_{i+1}$ we get:
+  
+$$y_{i+1} = dt y_{i}r (1-y_{i}) + y_{i}$$
+
+  To make this run, we need first, to define the $dt$, the total time $N$, and the vector of $time$. After that we set the value of the infection rate $r$.
+
+  We also need to create the vector of the disease intensity $y$. For that we the function `numeric()`, and the length of the vector is the same as the $time$ vector. After all, we define the initial value of $y$ as 0.01, which means that the initial inoculum is 1%.
+  
+  As you could see in the last equation, the dinamics works using information of $y_{i}$ to calc $y_{i+1}$. For that, we'll use a `for()` for make these calculation for all times. That explaing why we need the information of $y_{1}$ before start. 
+  
+  One detail that need to be clarified is, if we are using the **Forward difference**, the `for()` need to go until $t-1$, because when we get the $y_{t-1}$, we calculate the $y_{t}$, we can write like that `for(i in 1:t-1)` or like in the code bellow `for(i in 1:(length(time)-1))`.
+  
+  Using the **Backward difference** the `for()` need to start in the $t=2$ and finish in last $t$, i.e. `for(t in 2:t)` or `for(i in 2:length(time))`.
+
+
+```{r fig.height=4, fig.width=8}
+dt <- 5
+N <- 100 # total degree days
+time <- seq(0, N, by = dt)
+r <- 0.1
+
+y <- numeric(length(time))
+y[1] <- 0.01
+
+for (i in 1:(length(time) - 1)) {
+  y[i + 1] <- dt * y[i] * r * (1 - y[i]) + y[i]
+}
+
+logistic = data.frame(time = time, dt_5 = y)
+```
+
+Visualisation
+
+
+```{r}
+logistic %>% 
+  ggplot() +
+  geom_point(aes(time, dt_5),
+    size = 2,
+    color = "orange"
+  ) +
+  labs(x = "Time", y = "Disease intensity")
+```
+
+
+  Using a small number for $dt$ we obtain a different curve. See the example for $dt = 1$, 
+
+```{r fig.height=4, fig.width=8}
+dt <- 1
+N <- 100
+time2 <- seq(0, N, by = dt)
+r <- 0.1
+
+y2 <- numeric(length(time2))
+y2[1] <- 0.01
+
+for (i in 1:(length(time2) - 1)) {
+  y2[i + 1] <- dt * y2[i] * r * (1 - y2[i]) + y2[i]
+}
+
+```
+
+ and for $dt = 0.1$
+```{r}
+dt <- 0.1
+N <- 100
+time3 <- seq(0, N, by = dt)
+r <- 0.1
+
+y3 <- numeric(length(time3))
+y3[1] <- 0.01
+
+for (i in 1:(length(time3) - 1)) {
+  y3[i + 1] <- dt * y3[i] * r * (1 - y3[i]) + y3[i]
+}
+```
+
+Lets see the comparative
+
+```{r}
+ggplot() +
+  geom_point(aes(time, y, color = "dt = 5"),
+    size = 2
+  ) +
+  geom_point(aes(time2, y2, color = "dt = 1"),
+    size = 2
+  ) +
+  geom_point(aes(time3, y3, color = "dt = 0.1"),
+    size = 2
+  ) +
+  scale_color_manual(name = "", values = c("black","steelblue", "orange")) +
+  labs(x = "Time", y = "Disease intensity")
+```
+
+The rule is that the small the $dt$, the better is the solution of the differential equation, which means that the result is more close to the actual solution.
+
+## SIR model
+
+The SIR model, is a classical epidemic model, and that name comes from the compartments **Susceptible**, **Infectious** and **Removed** of epidemic system. The model consist, basically, in tree ordinary differential equations (ODEs), each one for one compartment of the epidemic.
+
+$$\frac {dS}{dt} = \frac{-\beta IS}{A}$$
+$$\frac {dI}{dt} = \frac{\beta IS}{A} - \mu I$$
+
+$$\frac {dR}{dt} =  \mu I$$
+
+Applying the Finite difference in all equations we can obtain: 
+
+
+$$S_{i+1} = {dt}\frac{-\beta I_{i}S_{i}}{A}+ S_{i}$$
+
+
+
+$$I_{i+1} = {dt}\left(\frac{\beta I_{i}S_{i}}{A} - \mu I\right) + I_{i}$$
+
+$$ R_{i+1}  = dt \mu I_{i}+ R_{i}$$
+
+  One other detail is that $A$ is the total of tissue in the system (diseased or not) and is calculated as $A = S+I+R$
+
+  And now we can put the equations in the code. We define the values for the parameters $\beta$ and $\mu$, which corresponds to the infection rate and removing/death rate, respectively. Create the vector for $S$, $I$ and $R$ and finally define the initial values of the compartment. In the example we are using $S_{1} = 0.99$, $I_{1} = 0.01$ and $R_{1} =0$
+
+```{r fig.height=4, fig.width=8}
+dt <- 0.1
+N <- 100 # total degree days
+time <- seq(0, N, by = dt)
+beta <- 0.5
+mu <- 0.1
+A <- 1
+S <- numeric(length(time))
+S[1] <- A - 0.01
+I <- numeric(length(time))
+I[1] <- A - S[1]
+R <- numeric(length(time))
+R[1] <- 0
+A <- 1
+
+for (i in 1:(length(time) - 1)) {
+  S[i + 1] <- dt * ((-beta * I[i] * S[i]) / A) + S[i]
+
+  I[i + 1] <- dt * ((beta * I[i] * S[i]) / A - mu * I[i]) + I[i]
+
+  R[i + 1] <- dt * (mu * I[i]) + R[i]
+}
+```
+
+Create a `data.frame`
+
+```{r}
+SIR_findif <- data.frame(time, S, I, R)
+```
+
+### Visualisation
+```{r fig.height=4, fig.width=8}
+SIR_findif %>%
+  ggplot() +
+  geom_line(aes(time, S, color = "Susceptible"),
+    size = 2
+  ) +
+  geom_line(aes(time, I, color = "Infectious"),
+    size = 2
+  ) +
+  geom_line(aes(time, R, color = "Removed"),
+    size = 2
+  ) +
+  scale_color_manual(
+    breaks = c("Susceptible", "Exposed", "Infectious", "Removed"),
+    values = c("orange", "black", "green")
+  ) +
+  labs(x = "Time", y = "Tissue", color = "")
+```
+
+## SEIR model
+
+In this model, a new compartment is added to represent the **Exposed** tissue in the epidemic. The Exposed tissue is that one that was infected by the pathogen, but still do not have symptoms and do not contribute to new infections. 
+
+
+$$\frac {dS}{dt} = \frac{-\beta IS}{A}$$
+$$\frac {dE}{dt} = \frac{\beta IS}{A} - \gamma E$$
+
+$$\frac {dI}{dt} = \gamma E - \mu I$$
+
+$$\frac {dR}{dt} =  \mu I$$
+
+Applying the finite differences we got
+
+$$S_{i+1} = {dt}\frac{-\beta I_{i}S_{i}}{A}+ S_{i}$$
+
+
+
+$$E_{i+1} = {dt}\left(\frac{\beta I_{i}S_{i}}{A} - \gamma E_{i}\right) + E_{i}$$
+
+$$ I_{i+1} = dt(\gamma E_{i} - \mu I_{i}) +I_{i}   $$
+$$ R_{i+1}  = dt \mu I_{i}+ R_{i}$$
+
+```{r fig.height=4, fig.width=8}
+dt <- 0.1
+N <- 100 # total degree days
+time <- seq(0, N, by = dt)
+beta <- 0.5
+mu <- 0.1
+gamma <- 0.2
+A <- 1
+S <- numeric(length(time))
+S[1] <- A - 0.01
+E <- numeric(length(time))
+E[1] <- 0
+I <- numeric(length(time))
+I[1] <- A - S[1]
+R <- numeric(length(time))
+R[1] <- 0
+A <- 1
+
+for (i in 1:(length(time) - 1)) {
+  S[i + 1] <- dt * (-beta * I[i] * S[i]) / A + S[i]
+
+  E[i + 1] <- dt * (((beta * I[i] * S[i]) / A) - gamma * E[i]) + E[i]
+
+  I[i + 1] <- dt * (gamma * E[i] - mu * I[i]) + I[i]
+
+  R[i + 1] <- dt * (mu * I[i]) + R[i]
+}
+```
+
+create a `data.frame`
+
+```{r}
+SEIR_findif <- data.frame(time, S, E, I, R)
+```
+
+### Visualisation
+```{r fig.height=4, fig.width=8}
+SEIR_findif %>%
+  ggplot() +
+  geom_line(aes(time, S, color = "Susceptible"),
+    size = 2
+  ) +
+  geom_line(aes(time, E, color = "Exposed"),
+    size = 2
+  ) +
+  geom_line(aes(time, I, color = "Infectious"),
+    size = 2
+  ) +
+  geom_line(aes(time, R, color = "Removed"),
+    size = 2
+  ) +
+  scale_color_manual(
+    breaks = c("Susceptible", "Exposed", "Infectious", "Removed"),
+    values = c("steelblue", "orange", "black", "green")
+  ) +
+  labs(x = "Time", y = "Tissue", color = "")
+```
+
+
+# The **`deSolve`** package
+
+  In this part we'll show how to solve ODEs using the `ode()` function from the **`deSolve`** package. The package have other function to solve other kinds of differential equation, like Delay differential equations (DDEs), differential algebraic equations (DAEs), but here we'll just to address the ODEs.
+  
+  The `ode()`functions have the following arguments that we need to solve the most ODEs in epidemiology:
+  
+   `y`: That means the initial values for the variables in the ODE model, also know as the initial conditions of the system. We usually set as `InitCond <- c(S_initial, I_initial, R_initial)`
+  
+  `times`: The vector of time for the epidemic. Can be created as `steps  = seq(initial_time,final_time, by = time_step)`
+
+  `func`: That one is a R-function that we specify the derivatives of the model. That function must be defined as `func =  function(t, y, parms)`, being `t` the time point in the integration, `y` is the current variable estimate, and have more than one variable, in that case `y` is writhed as a vector. `parms` is a list for the parameter of the ODEs. The `return` of this function is a list with the derivatives of each ODE of model. 
+  
+  `parms`: list with the values of the parameter defined in the `func`.
+  
+  
+
+## SIR model
+
+  First we will define the `func` of the `ode()`. See below:
+
+```{r}
+SIR_fun <- function(t, y, parms) {
+
+  # Variables
+  S <- y[1]
+  I <- y[2]
+  R <- y[3]
+
+  # parameters
+  beta <- parms$beta
+  mu <- parms$mu
+  A <- parms$A
+
+  # Right hand side of the model
+  dS <- -(beta * S * I) / A
+  dI <- ((beta * S * I) / A) - mu * I
+  dR <- mu * I
+
+  return(list(c(dS, dI, dR)))
+}
+```
+
+
+Here we define the initial values for the variables $S$, $I$ and $R$.
+```{r}
+S_initial <- 0.99
+I_initial <- 0.01
+R_initial <- 0
+
+InitCond <- c(S_initial, I_initial, R_initial)
+```
+
+
+  Now we define the values for the parameters
+
+```{r}
+beta <- 0.5
+mu <- 0.1
+A <- 1
+
+parms <- list(
+  beta = beta,
+  mu = mu,
+  A = A
+)
+```
+
+  The vector for the time steps is created 
+
+```{r}
+times <- seq(0, 100, by = 1)
+```
+ 
+ Now we have all the arguments defined for the `ode()` 
+
+```{r}
+SIR <- ode(InitCond, times, SIR_fun, parms)
+head(SIR)
+```
+
+  the output of the function is a matrix, where the first column is the time points, and the others columns are the variables, following the order of the `return()` of the `func`.
+  
+  So, we create a `data.frame` and visualize.
+```{r}
+epidemic_SIR <- data.frame(
+  time = SIR[, 1],
+  S = SIR[, 2],
+  I = SIR[, 3],
+  R = SIR[, 4]
+)
+```
+
+
+###Visualisation
+```{r fig.height=4, fig.width=8}
+epidemic_SIR %>%
+  ggplot() +
+  geom_line(aes(time, S, color = "Susceptible"),
+    size = 2
+  ) +
+  geom_line(aes(time, I, color = "Infectious"),
+    size = 2
+  ) +
+  geom_line(aes(time, R, color = "Removed"),
+    size = 2
+  ) +
+  scale_color_manual(
+    breaks = c("Susceptible", "Exposed", "Infectious", "Removed"),
+    values = c("orange", "black", "green")
+  ) +
+  labs(x = "Time", y = "Tissue", color = "")
+```
+
+## SEIR model
+
+  Define the `func` with the ODEs 
+```{r}
+SEIR_fun <- function(t, y, parms) {
+
+  # Variables
+  S <- y[1]
+  E <- y[2]
+  I <- y[3]
+  R <- y[4]
+  beta <- parms$beta
+  gamma <- parms$gamma
+  mu <- parms$mu
+  A <- parms$A
+
+  # Right hand side of the model
+  dS <- -(beta * S * I) / A
+  dE <- (beta * S * I) / A - gamma * E
+  dI <- gamma * E - mu * I
+  dR <- mu * I
+  return(list(c(dS, dE, dI, dR)))
+}
+```
+
+  Initial conditions
+```{r}
+S_initial <- 0.99
+E_initial <- 0
+I_initial <- 0.01
+R_initial <- 0
+
+InitCond <- c(S_initial, E_initial, I_initial, R_initial)
+```
+
+  Parameters
+```{r}
+beta <- 0.5
+mu <- 0.1
+gamma <- 0.2
+A <- 1
+
+parms <- list(
+  beta = beta,
+  gamma = gamma,
+  mu = mu,
+  A = A
+)
+```
+
+  Time steps
+```{r}
+steps <- seq(0, 100, by = 1)
+```
+
+  Run the `ode()`
+```{r}
+SEIR <- ode(InitCond, steps, SEIR_fun, parms)
+head(SEIR)
+```
+
+  Create the `data.frame`
+```{r}
+epidemic_SEIR <- data.frame(
+  time = SEIR[, 1],
+  S = SEIR[, 2],
+  E = SEIR[, 3],
+  I = SEIR[, 4],
+  R = SEIR[, 5]
+)
+```
+
+  Visualisation
+```{r fig.height=4, fig.width=8}
+epidemic_SEIR %>%
+  ggplot() +
+  geom_line(aes(time, S, color = "Susceptible"),
+    size = 2
+  ) +
+  geom_line(aes(time, E, color = "Exposed"),
+    size = 2
+  ) +
+  geom_line(aes(time, I, color = "Infectious"),
+    size = 2
+  ) +
+  geom_line(aes(time, R, color = "Removed"),
+    size = 2
+  ) +
+  scale_color_manual(
+    breaks = c("Susceptible", "Exposed", "Infectious", "Removed"),
+    values = c("steelblue", "orange", "black", "green")
+  ) +
+  labs(x = "Time", y = "Tissue", color = "")
+```
+
+# Finite difference vs **`deSolve`** package
+
+## SIR model
+```{r}
+SIR_1 <- SIR_findif %>%
+  mutate(method = "Finite difference")
+SIR_2 <- epidemic_SIR %>%
+  mutate(method = "deSolve")
+
+new_order_sir <- c("S", "I", "R")
+
+SIR <- SIR_1 %>%
+  bind_rows(SIR_2) %>%
+  gather(2:4, key = "Compartment", value = "Incidence")
+
+SIR <- arrange(transform(SIR,
+  Compartment = factor(Compartment, levels = new_order_sir)
+), Compartment)
+
+SIR %>%
+  ggplot() +
+  geom_line(aes(time, Incidence, color = method),
+    alpha = 0.7,
+    size = 1
+  ) +
+  scale_color_manual(values = c("red", "blue")) +
+  facet_wrap(~Compartment)+
+  labs(x = "Time", y = "Tissue", color = "")
+```
+
+## SEIR model
+
+```{r}
+SEIR_1 <- SEIR_findif %>%
+  mutate(method = "Finite difference")
+SEIR_2 <- epidemic_SEIR %>%
+  mutate(method = "deSolve")
+
+SEIR <- SEIR_1 %>%
+  bind_rows(SEIR_2) %>%
+  gather(2:5, key = "Compartment", value = "Incidence")
+
+new_order_seir <- c("S", "E", "I", "R")
+
+SEIR <- arrange(transform(SEIR,
+  Compartment = factor(Compartment, levels = new_order_seir)
+), Compartment)
+
+
+SEIR %>%
+  ggplot() +
+  geom_line(aes(time, Incidence, color = method),
+    alpha = 0.7,
+    size = 1
+  ) +
+  scale_color_manual(values = c("red", "blue")) +
+  facet_wrap(~Compartment)+
+  labs(x = "Time", y = "Tissue", color = "")
+```
+
+
+# References
